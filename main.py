@@ -1,87 +1,118 @@
 import os
-import asyncio
+import yt_dlp
 from pyrogram import Client, filters
-from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
-from yt_dlp import YoutubeDL
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message, CallbackQuery
 
-API_ID = 1234567  # replace with your API_ID
-API_HASH = "your_api_hash"  # replace with your API_HASH
-BOT_TOKEN = "your_bot_token"  # replace with your BOT_TOKEN
+API_ID = 123456  # replace with your API ID
+API_HASH = "your_api_hash"
+BOT_TOKEN = "your_bot_token"
 
-app = Client("ytdl_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+app = Client("yt_format_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-# Get only .mp4 formats
-def get_mp4_formats(url):
-    ydl_opts = {'quiet': True, 'skip_download': True}
-    with YoutubeDL(ydl_opts) as ydl:
+def get_progressive_mp4_formats(url):
+    ydl_opts = {
+        'quiet': True,
+        'skip_download': True,
+        'force_generic_extractor': False,
+    }
+
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=False)
         formats = info.get('formats', [])
-        mp4_formats = [f for f in formats if f.get('ext') == 'mp4' and f.get('format_id') and f.get('filesize')]
-        return info.get('title'), mp4_formats
+        filtered = []
+        for fmt in formats:
+            if (
+                fmt.get('ext') == 'mp4'
+                and fmt.get('acodec') != 'none'
+                and fmt.get('vcodec') != 'none'
+                and fmt.get('format_id')
+            ):
+                size = fmt.get('filesize') or 0
+                mb = f"{size / (1024 * 1024):.2f} MB" if size else "N/A"
+                res = fmt.get('height', 'N/A')
+                filtered.append({
+                    "id": fmt["format_id"],
+                    "res": f"{res}p",
+                    "size": mb,
+                })
+        return filtered
 
-# Start command
-@app.on_message(filters.command("start"))
-async def start_handler(_, message: Message):
-    await message.reply("Send a YouTube link using /ytdl <url>")
-
-# /ytdl <url>
 @app.on_message(filters.command("ytdl"))
-async def ytdl_handler(_, message: Message):
+async def ytdl_handler(client, message: Message):
     if len(message.text.split()) < 2:
-        return await message.reply("Send the command like: `/ytdl <url>`")
-    
+        return await message.reply("Usage: `/ytdl <YouTube URL>`", quote=True)
+
     url = message.text.split(None, 1)[1].strip()
-    
+
+    await message.reply("Fetching available formats...")
+
     try:
-        title, mp4_formats = get_mp4_formats(url)
+        formats = get_progressive_mp4_formats(url)
+        if not formats:
+            return await message.reply("No progressive .mp4 formats found.")
+
+        buttons = []
+        for fmt in formats:
+            btn_text = f"{fmt['res']} - {fmt['size']} (ID: {fmt['id']})"
+            callback_data = f"{fmt['id']}|{url}"
+            buttons.append([InlineKeyboardButton(btn_text, callback_data=callback_data)])
+
+        await message.reply(
+            "Select a format to download:",
+            reply_markup=InlineKeyboardMarkup(buttons)
+        )
     except Exception as e:
-        return await message.reply(f"Failed to fetch formats: `{e}`")
-    
-    if not mp4_formats:
-        return await message.reply("No .mp4 formats found.")
+        await message.reply(f"Error: {e}")
 
-    buttons = []
-    for f in mp4_formats:
-        fid = f["format_id"]
-        size_mb = round(f["filesize"] / 1024 / 1024, 1)
-        buttons.append([InlineKeyboardButton(f"{fid} - {size_mb}MB", callback_data=f"{url}|{fid}")])
-
-    await message.reply(
-        f"Choose quality for:\n**{title}**",
-        reply_markup=InlineKeyboardMarkup(buttons)
-    )
-
-# Callback: download using selected format
 @app.on_callback_query()
-async def download_callback(_, query: CallbackQuery):
-    await query.answer()
+async def format_callback(client, callback_query: CallbackQuery):
+    data = callback_query.data
+    if "|" not in data:
+        return await callback_query.answer("Invalid format.", show_alert=True)
+
+    format_id, url = data.split("|", 1)
+    await callback_query.message.edit("Downloading selected format...")
 
     try:
-        data = query.data
-        url, format_id = data.split("|")
-        temp_msg = await query.message.reply(f"Downloading `{format_id}` from YouTube...")
-
         ydl_opts = {
-            "format": format_id,
-            "outtmpl": "downloads/%(title)s.%(ext)s",
+            'format': format_id,
+            'outtmpl': '%(title)s.%(ext)s',
+            'merge_output_format': 'mp4',
         }
 
-        os.makedirs("downloads", exist_ok=True)
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url)
+            file_path = ydl.prepare_filename(info)
 
-        with YoutubeDL(ydl_opts) as ydl:
-            info = ydl.download([url])
+        # Download YouTube thumbnail
+        video_id = info.get("id")
+        thumbnail_url = f"https://i.ytimg.com/vi/{video_id}/maxresdefault.jpg"
+        thumb_path = f"{video_id}_thumb.jpg"
+        try:
+            r = requests.get(thumbnail_url)
+            if r.ok:
+                with open(thumb_path, "wb") as f:
+                    f.write(r.content)
+            else:
+                thumb_path = None
+        except:
+            thumb_path = None
 
-        downloaded_files = os.listdir("downloads")
-        if not downloaded_files:
-            return await temp_msg.edit("Download failed or file not found.")
-        
-        file_path = os.path.join("downloads", downloaded_files[0])
-        await query.message.reply_video(video=file_path, caption="Here’s your video")
+        await client.send_video(
+            chat_id=callback_query.message.chat.id,
+            video=file_path,
+            caption=info.get('title', 'Downloaded'),
+            supports_streaming=True,
+            thumb=thumb_path if thumb_path else None
+        )
+
         os.remove(file_path)
-        await temp_msg.delete()
+        if thumb_path and os.path.exists(thumb_path):
+            os.remove(thumb_path)
+
+        await callback_query.message.delete()
 
     except Exception as e:
-        await query.message.reply(f"Error: `{e}`")
+        await callback_query.message.edit(f"Download failed: {e}")
 
-# Run bot
 app.run()
