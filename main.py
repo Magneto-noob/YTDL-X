@@ -77,11 +77,11 @@ async def download_video(_, query: CallbackQuery):
 
     try:
         ydl_opts = {
-            "format": format_id,
-            "outtmpl": "%(title)s.%(ext)s",
-            "merge_output_format": "mp4"
+         "format": f"{format_id}+bestaudio",
+         "outtmpl": "%(title)s.%(ext)s",
+         "merge_output_format": "mp4"
         }
-
+        
         with YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url)
             file_path = ydl.prepare_filename(info)
