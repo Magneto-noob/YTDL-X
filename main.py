@@ -3,9 +3,9 @@ import yt_dlp
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message, CallbackQuery
 
-API_ID = 123456  # replace with your API ID
-API_HASH = "your_api_hash"
-BOT_TOKEN = "your_bot_token"
+API_ID = 15523035  # replace with your API ID
+API_HASH = "33a37e968712427c2e7971cb03f341b3"
+BOT_TOKEN = "1980052148:AAHk8dLasVYzfDV6A6U0_NxPSTntQax9p1Y"
 
 app = Client("yt_format_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
