@@ -46,9 +46,9 @@ def generate_thumbnail(video_path):
 async def send_video_with_meta(client, chat_id, file_path, caption=None, thumb=None):
     try:
         attributes = files.get_file_attributes(file_path)
-        duration = attributes[0].duration
-        width = attributes[0].w
-        height = attributes[0].h
+        duration = int(float(attributes[0].duration or 0))
+        width = int(float(attributes[0].w or 0))
+        height = int(float(attributes[0].h or 0))
     except Exception:
         duration = width = height = None
 
@@ -62,6 +62,7 @@ async def send_video_with_meta(client, chat_id, file_path, caption=None, thumb=N
         width=width,
         height=height
     )
+    
 
 @app.on_message(filters.command("ytdl"))
 async def ytdl_handler(_, message: Message):
